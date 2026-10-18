@@ -10,3 +10,6 @@ dataset/
 dataset.zip
 overlay/
 *.zip
+
+# collected static files (python manage.py collectstatic)
+staticfiles/

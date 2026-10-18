@@ -1,0 +1,289 @@
+{% extends "quiz/base.html" %}
+{% block title %}Offline lab exam · SnapNPlan{% endblock %}
+{% block style %}{% include "quiz/_guide_style.html" %}
+<style>
+  .kit-meta { margin: 0; }
+  .kit-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .kit-link { font-weight: 700; font-size: .9rem; color: var(--accent); }
+  .kit-hash { flex-basis: 100%; margin: 0; font-size: .78rem; color: var(--muted); }
+  .kit-hash code { font-size: .95em; }
+
+  .opts { display: grid; grid-template-columns: minmax(0, 220px) 1fr;
+          margin: 12px 0 0; }
+  .opts dt, .opts dd { padding: 10px 0; border-top: 1px solid var(--line); margin: 0; }
+  .opts dt { padding-right: 14px; }
+  .opts dd { font-size: .93rem; }
+  @media (max-width: 560px) {
+    .opts { grid-template-columns: 1fr; }
+    .opts dd { border-top: 0; padding-top: 0; }
+  }
+  .qa { padding: 14px 0; border-top: 1px solid var(--line); }
+  .qa:first-of-type { border-top: 0; padding-top: 8px; }
+  .qa h3 { font-size: 1rem; margin: 0 0 4px; }
+  .qa p { margin: 0; font-size: .95rem; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Offline lab exam</h1>
+<p class="muted lead">Run an exam on your college lab network with the internet
+  turned off. One teacher PC hosts the exam and keeps every record. Each
+  student PC runs a small monitor next to Chrome or Edge.</p>
+
+<div class="card action" id="download">
+  <div class="action-main">
+    <div class="action-icon" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/>
+      </svg>
+    </div>
+    <div>
+      <h2>Offline exam kit</h2>
+      <p class="muted small kit-meta">Version {{ kit.version }} for Windows 10 and
+        11{% if kit.size_mb %}, {{ kit.size_mb }}&nbsp;MB{% endif %}</p>
+    </div>
+  </div>
+  {% if kit.url %}
+  <div class="kit-actions">
+    <a class="btn" href="{{ kit.url }}">Download the kit</a>
+  </div>
+  {% if kit.sha256 %}
+  <p class="kit-hash">To check the download, its SHA-256 is <code>{{ kit.sha256 }}</code></p>
+  {% endif %}
+  {% else %}
+  <p class="muted small" style="margin:0">The download link appears here once
+    the kit is uploaded.</p>
+  {% endif %}
+</div>
+
+<section class="card section">
+  <h2>What you need</h2>
+  <ul class="plain">
+    <li>A teacher PC and the student PCs, all on the same lab network and
+      running Windows 10 or 11. The internet can stay off.</li>
+    <li>Chrome or Edge on each student PC. Edge comes with Windows.</li>
+    <li>An administrator account on each student PC, used once during setup.</li>
+    <li>A fixed address for the teacher PC. Ask lab IT to reserve one, so it
+      stays the same from exam to exam.</li>
+  </ul>
+</section>
+
+<section class="card section">
+  <h2>Set up the teacher PC</h2>
+  <p class="muted small intro">Do this once. Your exams, results and passcode
+    stay on this PC.</p>
+  <ol class="steps" role="list">
+    <li>
+      <span class="num" aria-hidden="true">1</span>
+      <div>
+        <h3>Download and extract the kit</h3>
+        <p>Download the kit on any PC with internet and copy it to the teacher
+          PC, for example by USB drive. If Windows marks it as downloaded from
+          the internet, right-click the zip, open <b>Properties</b>, tick
+          <b>Unblock</b>, then extract it to a folder such as Documents.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">2</span>
+      <div>
+        <h3>Install Python</h3>
+        <p>Skip this if Python 3.10 to 3.14 is already installed. Otherwise run
+          <code>vendor\python\python-3.14.8-amd64.exe</code> from the kit and
+          tick <b>Add Python to PATH</b>.{% if kit.python_url %} You can also
+          <a class="kit-link" href="{{ kit.python_url }}">download the Python
+          installer on its own</a>.{% endif %}</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">3</span>
+      <div>
+        <h3>Run setup</h3>
+        <p>Double-click <code>teacher\SETUP-TEACHER-PC.bat</code> and choose a
+          staff passcode of at least six characters. Everything it needs is
+          already in the kit. When it finishes, it has made a
+          <code>student_package</code> folder.</p>
+        <p>If the PC has more than one network connection, setup lists them.
+          Run it again with the teacher PC's lab address, for example:</p>
+<pre>teacher\SETUP-TEACHER-PC.bat --ip 192.168.1.20 --port 8000</pre>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">4</span>
+      <div>
+        <h3>Allow the lab network</h3>
+        <p>Double-click <code>teacher\ALLOW-LAN-FIREWALL.bat</code> and approve
+          the Windows prompt. It lets PCs on the same network reach the exam.
+          The firewall stays on.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">5</span>
+      <div>
+        <h3>Start the server</h3>
+        <p>Double-click <code>teacher\START-EXAM-SERVER.bat</code> and keep
+          the window open during the exam. It shows a <b>Staff page</b>
+          address. Open it in a browser on the teacher PC, enter the passcode
+          and create the exam to get its code.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="card section">
+  <h2>Set up each student PC</h2>
+  <p class="muted small intro">Do this once per PC. It stays in place for every
+    later exam.</p>
+  <ol class="steps" role="list">
+    <li>
+      <span class="num" aria-hidden="true">1</span>
+      <div>
+        <h3>Copy the student package</h3>
+        <p>Copy the <code>student_package</code> folder from the teacher PC to
+          the student PC, by USB drive or a shared folder. It holds your lab's
+          own key, so keep it inside the lab.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">2</span>
+      <div>
+        <h3>Install the monitor</h3>
+        <p>An administrator double-clicks <code>INSTALL-AGENT.bat</code> and
+          approves the Windows prompt. It shows what it changes and saves the
+          original settings, which <code>UNINSTALL-AGENT.bat</code> puts back.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">3</span>
+      <div>
+        <h3>Check the PC</h3>
+        <p>Sign in as the student; the monitor starts by itself. With the
+          teacher server running, double-click <code>SELFTEST.bat</code>. Every
+          check should pass; anything marked FAIL says how to fix it.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="card section">
+  <h2>Run the exam</h2>
+  <p class="muted small intro">Before your first exam, do a five-minute
+    practice run with two student PCs to see the whole flow once.</p>
+  <ol class="steps" role="list">
+    <li>
+      <span class="num" aria-hidden="true">1</span>
+      <div>
+        <h3>Create the exam</h3>
+        <p>Start the teacher server and create the exam from the Staff page.
+          Read out the code.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">2</span>
+      <div>
+        <h3>Students open the exam</h3>
+        <p>Each student double-clicks <code>launch-exam.bat</code>. It opens the
+          exam page in Chrome or Edge.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">3</span>
+      <div>
+        <h3>Students join</h3>
+        <p>They type the code, their name and their roll number. Each roll
+          number has one attempt per exam.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">4</span>
+      <div>
+        <h3>Students share their screen</h3>
+        <p>They click <b>Share entire screen &amp; start exam</b> and pick the
+          whole screen. The exam opens once the screen check is running. Only
+          one display is allowed, so unplug any second monitor first.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">5</span>
+      <div>
+        <h3>Watch the dashboard</h3>
+        <p>Each PC appears as a tile. You can allow a lookup, pause
+          monitoring, allow or deny a website or app for one student or the
+          whole room, and end the exam for everyone.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">6</span>
+      <div>
+        <h3>Download the results</h3>
+        <p>Use <b>CSV</b> or <b>Excel</b> on the dashboard for marks and the
+          full record. Everything stays on the teacher PC.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="card section">
+  <h2>Write the paper</h2>
+  <p class="intro" style="font-size:.95rem">Type questions on the Staff page the
+    same way as an online exam: a blank line between questions and a
+    <b>*</b> before the right answer. You can add these lines to the
+    Questions box:</p>
+  <dl class="opts">
+    <dt><code>[2 marks]</code></dt>
+    <dd>At the end of a question: marks for that question.</dd>
+    <dt><code>[-0.5 marks]</code></dt>
+    <dd>Marks taken off for a wrong answer.</dd>
+    <dt><code># Section A</code></dt>
+    <dd>Starts a section.</dd>
+    <dt><code>@shuffle</code></dt>
+    <dd>Gives each student their own order of questions and options.</dd>
+    <dt><code>@end 11:30</code></dt>
+    <dd>The whole room finishes at this time.</dd>
+    <dt><code>@extra 70572300012 15</code></dt>
+    <dd>Gives one roll number 15 extra minutes.</dd>
+    <dt><code>@allow-ml document</code></dt>
+    <dd>Open book: the screen check does not flag documents such as notes
+      and PDFs.</dd>
+    <dt><code>@deny-app whatsapp.exe</code></dt>
+    <dd>Marks an app as not allowed before the exam starts.
+      <code>@deny-site chatgpt.com</code> does the same for a website.</dd>
+  </dl>
+  <p class="muted small" style="margin:14px 0 0">For an exam in Jupyter, VS Code
+    or on paper, leave Questions empty and fill in <b>Where do students
+    answer?</b> The kit's README lists every option.</p>
+</section>
+
+<section class="card section">
+  <h2>If something goes wrong</h2>
+  <div class="qa">
+    <h3>SELFTEST cannot reach the teacher PC</h3>
+    <p>Check that the server window is open and that
+      <code>ALLOW-LAN-FIREWALL.bat</code> has been run. If the college network
+      blocks traffic between PCs, ask lab IT to let student PCs reach the
+      teacher PC on its exam port (8000 unless you changed it).</p>
+  </div>
+  <div class="qa">
+    <h3>The teacher PC's address changed</h3>
+    <p>Run setup again with the new address, then install the new
+      <code>student_package</code> on each student PC.</p>
+  </div>
+  <div class="qa">
+    <h3>A student PC stops working during the exam</h3>
+    <p>The student moves to another set-up PC and joins with the same name and
+      roll number. After a minute the attempt moves across with the same
+      answers and time left.</p>
+  </div>
+  <div class="qa">
+    <h3>The exam page locks</h3>
+    <p>It locks when screen sharing stops, a second display is connected or
+      the monitor is not running. The clock keeps going. Fix the cause and
+      click <b>Restore screen monitoring</b>; saved answers are kept.</p>
+  </div>
+</section>
+
+{% if kit.url %}
+<div class="end">
+  <a class="btn block" href="{{ kit.url }}">Download the kit</a>
+</div>
+{% endif %}
+{% endblock %}

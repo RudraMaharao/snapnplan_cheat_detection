@@ -10,22 +10,47 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Settings can come from a .env file next to manage.py. On your own computer
+# you need nothing here; the server's .env is written by deploy/setup-server.sh.
+load_dotenv(BASE_DIR / ".env")
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-38$!63jxuek(wi7f01=@(2@pvz4(!c$@+wjot5%9hvvm&5qt=@'
+def _env_list(name):
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "1") == "1"
 
-ALLOWED_HOSTS = []
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("Set DJANGO_SECRET_KEY when DJANGO_DEBUG is 0.")
+    SECRET_KEY = 'django-insecure-38$!63jxuek(wi7f01=@(2@pvz4(!c$@+wjot5%9hvvm&5qt=@'
+
+ALLOWED_HOSTS = _env_list("DJANGO_ALLOWED_HOSTS")
+CSRF_TRUSTED_ORIGINS = _env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+
+# The server sits behind nginx, which handles HTTPS. Screen sharing in the
+# online exam only works on an HTTPS page.
+if os.getenv("DJANGO_HTTPS") == "1":
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+# Where the database, uploads and collected static files live. Defaults to
+# the project folder; the server keeps them outside the code, in /srv/snapnplan/data.
+DATA_DIR = Path(os.getenv("SNAPNPLAN_DATA_DIR", BASE_DIR))
 
 
 # Application definition
@@ -75,7 +100,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': DATA_DIR / 'db.sqlite3',
     }
 }
 
@@ -115,6 +140,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = DATA_DIR / "staticfiles"     # filled by collectstatic, served by nginx
 
 
 # Email
@@ -126,14 +152,10 @@ MAILERS = {
     },
 }
 # ---------------- study app ----------------
-import os
-from dotenv import load_dotenv
-load_dotenv(BASE_DIR / ".env")
-
 INSTALLED_APPS += ["quiz"]
 
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = DATA_DIR / "media"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 15 * 1024 * 1024
 
 ML_DIR = BASE_DIR / "ml"                     # model.keras + config.json from Colab
@@ -149,3 +171,13 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")   # optional backup
 
 # remember a student's quizzes on their device for 90 days (exam plans)
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 90
+
+
+# ---------------- offline lab exam kit ----------------
+# Download links on /exam-mode/offline/. deploy/upload-kit.sh uploads the kit
+# to S3 and prints these lines for the server's .env file.
+LAN_KIT_VERSION = os.getenv("LAN_KIT_VERSION", "2.2")
+LAN_KIT_URL = os.getenv("LAN_KIT_URL", "")
+LAN_KIT_PYTHON_URL = os.getenv("LAN_KIT_PYTHON_URL", "")
+LAN_KIT_SHA256 = os.getenv("LAN_KIT_SHA256", "")
+LAN_KIT_SIZE_MB = os.getenv("LAN_KIT_SIZE_MB", "")

@@ -1,0 +1,105 @@
+{% extends "quiz/base.html" %}
+{% block title %}Online exam · SnapNPlan{% endblock %}
+{% block style %}{% include "quiz/_guide_style.html" %}{% endblock %}
+{% block content %}
+<h1>Online exam</h1>
+<p class="muted lead">Students take the exam on {{ site }} in Chrome or Edge.
+  There is nothing to install on their side.</p>
+
+<div class="card action">
+  <div class="action-main">
+    <div class="action-icon" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>
+        <path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/>
+      </svg>
+    </div>
+    <div>
+      <h2>Start an exam</h2>
+      <div class="muted small">You will need the staff passcode.</div>
+    </div>
+  </div>
+  <a class="btn" href="{% url 'exam_create' %}">Start an online exam</a>
+</div>
+
+<section class="card section">
+  <h2>Before you start</h2>
+  <ul class="plain">
+    <li>Each student needs a laptop or desktop with Chrome or Edge, and an
+      internet connection. Phones and tablets cannot share a screen, so they
+      cannot sit the exam.</li>
+    <li>The staff passcode is asked for every time an exam is started, so a
+      student cannot start one from a shared lab PC.</li>
+  </ul>
+</section>
+
+<section class="card section">
+  <h2>Running the exam</h2>
+  <ol class="steps" role="list">
+    <li>
+      <span class="num" aria-hidden="true">1</span>
+      <div>
+        <h3>Create the exam</h3>
+        <p>Click <b>Start an online exam</b> and enter the passcode. Give the
+          exam a name, set the minutes and type the questions. Leave a blank
+          line between questions and put a <b>*</b> before the right answer.</p>
+<pre>What is the worst-case time complexity of quicksort?
+- O(n)
+- O(n log n)
+* O(n^2)
+- O(log n)</pre>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">2</span>
+      <div>
+        <h3>Read out the code</h3>
+        <p>You get a six-character code and your dashboard. Keep the
+          dashboard open on your screen for the whole exam.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">3</span>
+      <div>
+        <h3>Students join</h3>
+        <p>Students go to <b>{{ site }}</b>, open <b>Exam mode</b> and type the
+          code, then their name. They click <b>Share screen &amp; begin</b> and
+          choose <b>Entire Screen</b>. Each student's time starts at that
+          moment.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">4</span>
+      <div>
+        <h3>Watch the room</h3>
+        <p>Each student appears as a tile that shows clear, warning or
+          flagged. Use <b>Allow lookup</b> for an open-book part, or
+          <b>Pause</b> to stop checking. Click a tile to do this for one
+          student.</p>
+      </div>
+    </li>
+    <li>
+      <span class="num" aria-hidden="true">5</span>
+      <div>
+        <h3>See the results</h3>
+        <p>When students submit, they see their score and a timeline of what
+          was recorded. Your dashboard shows who has submitted and how many
+          flags each student has.</p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<div class="note">
+  <b>What students are told</b>
+  They must share their entire screen; a single tab or window is refused. The
+  screen is checked every few seconds for other windows. No image or video is
+  sent or saved, only when another window was on top and for how long. A
+  warning comes first, and closing the window in time keeps it off the record.
+</div>
+
+<div class="end">
+  <a class="btn block" href="{% url 'exam_create' %}">Start an online exam</a>
+</div>
+{% endblock %}

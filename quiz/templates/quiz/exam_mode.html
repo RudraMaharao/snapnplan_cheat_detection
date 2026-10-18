@@ -1,0 +1,115 @@
+{% extends "quiz/base.html" %}
+{% block title %}Exam mode · SnapNPlan{% endblock %}
+{% block style %}
+<style>
+  .lead { margin: 0 0 22px; max-width: 560px; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+             align-items: stretch; }
+  @media (max-width: 640px) { .choices { grid-template-columns: 1fr; } }
+  .choice { display: flex; flex-direction: column; margin: 0; }
+  .choice-head { display: flex; align-items: center; justify-content: space-between;
+                 margin-bottom: 14px; }
+  .choice-icon { width: 48px; height: 48px; border-radius: 14px; display: grid;
+                 place-items: center; color: var(--accent); background: var(--accent-soft); }
+  .choice h2 { font-size: 1.25rem; margin: 0 0 6px; }
+  .choice p { margin: 0 0 14px; }
+  .facts { list-style: none; margin: 0 0 20px; padding: 0; font-size: .9rem; }
+  .facts li { position: relative; padding-left: 18px; margin: 7px 0; }
+  .facts li::before { content: ""; position: absolute; left: 2px; top: .62em;
+                      width: 6px; height: 6px; border-radius: 50%;
+                      background: var(--accent); }
+  .choice-actions { margin-top: auto; display: flex; align-items: center;
+                    gap: 14px; flex-wrap: wrap; }
+  .quiet-link { font-weight: 700; font-size: .9rem; color: var(--accent);
+                text-decoration: none; }
+  .quiet-link:hover { text-decoration: underline; }
+
+  .join h2 { margin-bottom: 4px; }
+  .join-form { display: flex; gap: 10px; margin: 14px 0 0; }
+  .join-form input { flex: 1; min-width: 0; max-width: 260px; padding: 12px 14px;
+                     font: inherit; font-weight: 800; letter-spacing: .14em;
+                     text-transform: uppercase; border: 1.5px solid var(--line);
+                     border-radius: 12px; background: var(--card); color: var(--ink); }
+  .join-form input::placeholder { color: var(--muted); font-weight: 600;
+                                  letter-spacing: .14em; opacity: .7; }
+  .join-form input:focus { outline: none; border-color: var(--accent); }
+  .join .err { color: var(--bad); font-weight: 700; font-size: .9rem; margin: 10px 0 0; }
+  .join .aside { margin: 14px 0 0; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden;
+             clip: rect(0 0 0 0); white-space: nowrap; }
+</style>
+{% endblock %}
+{% block content %}
+<h1>Exam mode</h1>
+<p class="muted lead">Choose how your exam runs. Both kinds time every student,
+  check their screen for other windows and keep a record you can review.</p>
+
+<div class="choices">
+  <section class="card choice" aria-labelledby="online-title">
+    <div class="choice-head">
+      <div class="choice-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/><path d="M3 12h18"/>
+          <path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/>
+        </svg>
+      </div>
+      <span class="tag">Internet on</span>
+    </div>
+    <h2 id="online-title">Online exam</h2>
+    <p class="muted">Students take the exam on this site, from a laptop or lab PC
+      with Chrome or Edge. Nothing to install.</p>
+    <ul class="facts">
+      <li>Students join with a code and their name</li>
+      <li>Questions, timer and marks all run here</li>
+      <li>You watch the room live from your dashboard</li>
+    </ul>
+    <div class="choice-actions">
+      <a class="btn" href="{% url 'exam_online' %}">Set up an online exam</a>
+      <a class="quiet-link" href="{% url 'exam_create' %}">Start now</a>
+    </div>
+  </section>
+
+  <section class="card choice" aria-labelledby="offline-title">
+    <div class="choice-head">
+      <div class="choice-icon" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="8.5" y="3" width="7" height="5" rx="1"/>
+          <rect x="2.5" y="16" width="7" height="5" rx="1"/>
+          <rect x="14.5" y="16" width="7" height="5" rx="1"/>
+          <path d="M12 8v4"/><path d="M6 16v-4h12v4"/>
+        </svg>
+      </div>
+      <span class="tag">No internet</span>
+    </div>
+    <h2 id="offline-title">Offline lab exam</h2>
+    <p class="muted">For college lab PCs with the internet turned off. One
+      teacher PC runs the exam over the lab network.</p>
+    <ul class="facts">
+      <li>Works with no internet at all</li>
+      <li>For Windows 10 and 11 lab PCs</li>
+      <li>One download, set up once per lab</li>
+    </ul>
+    <div class="choice-actions">
+      <a class="btn" href="{% url 'exam_offline' %}">Set up an offline lab exam</a>
+    </div>
+  </section>
+</div>
+
+<section class="card join" id="join" aria-labelledby="join-title">
+  <h2 id="join-title">Taking an exam?</h2>
+  <p class="muted small" style="margin:0">Type the code your invigilator read out.</p>
+  <form class="join-form" method="get" action="{% url 'exam_find' %}">
+    <label class="sr-only" for="code">Exam code</label>
+    <input id="code" name="code" maxlength="8" required autocomplete="off"
+           autocapitalize="characters" spellcheck="false" placeholder="A3F19C"
+           value="{{ join_code|default:'' }}"
+           {% if join_error %}aria-invalid="true" aria-describedby="join-err" autofocus{% endif %}>
+    <button class="btn" type="submit">Join</button>
+  </form>
+  {% if join_error %}<p class="err" id="join-err" role="alert">{{ join_error }}</p>{% endif %}
+  <p class="muted small aside">In an offline lab exam, use the exam window that
+    opens on your lab PC instead.</p>
+</section>
+{% endblock %}

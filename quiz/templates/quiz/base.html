@@ -48,8 +48,10 @@
            text-decoration: none; font-weight: 800; letter-spacing: -.01em; }
   .topnav { display: flex; align-items: center; gap: 6px; }
   .topnav a { white-space: nowrap; }
+  /* On phones the logo already goes to the new-quiz page, so the
+     "+ New quiz" button is hidden there to keep the bar on screen. */
   @media (max-width: 420px) {
-    .hide-sm { display: none; }
+    .hide-sm, .topnav .hide-sm { display: none; }
     .navlink { padding: 8px 6px; }
   }
   .navlink { font-weight: 700; font-size: .9rem; text-decoration: none;
@@ -126,10 +128,10 @@
       SnapNPlan
     </a>
     <nav class="topnav">
-      <a class="navlink" href="{% url 'exam_create' %}">Exam mode</a>
+      <a class="navlink" href="{% url 'exam_choose' %}">Exam mode</a>
       <a class="navlink" href="{% url 'exam' %}">Exam plan</a>
       {% block topnav %}
-      <a class="btn small ghost" href="{% url 'upload' %}"><span>+ New<span class="hide-sm"> quiz</span></span></a>
+      <a class="btn small ghost hide-sm" href="{% url 'upload' %}"><span>+ New<span class="hide-sm"> quiz</span></span></a>
       {% endblock %}
     </nav>
   </div>

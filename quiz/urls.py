@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views
 from . import exam_views
+from . import exam_guides
 
 urlpatterns = [
     path("", views.upload, name="upload"),
@@ -12,7 +13,13 @@ urlpatterns = [
     path("exam/", views.exam, name="exam"),
     path("flashcards/", views.flashcards, name="flashcards"),
 
-    # --- exam mode ---
+    # --- exam mode: choose online or offline ---
+    path("exam-mode/",              exam_guides.exam_choose,   name="exam_choose"),
+    path("exam-mode/join/",         exam_guides.exam_find,     name="exam_find"),
+    path("exam-mode/online/",       exam_guides.exam_online,   name="exam_online"),
+    path("exam-mode/offline/",      exam_guides.exam_offline,  name="exam_offline"),
+
+    # --- exam mode (online) ---
     path("exam/new/",               exam_views.exam_create,    name="exam_create"),
     path("exam/<str:code>/",        exam_views.exam_join,      name="exam_join"),
     path("exam/<str:code>/run/",    exam_views.exam_run,       name="exam_run"),
