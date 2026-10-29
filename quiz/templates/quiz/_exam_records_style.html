@@ -1,0 +1,21 @@
+<style>
+  main { max-width: 1120px; }
+  .record-head, .record-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+  .record-actions { justify-content:flex-start; margin:20px 0; }
+  .record-meta { color:var(--muted); font-size:.88rem; }
+  .record-table { overflow-x:auto; border:1px solid var(--line); border-radius:14px; margin:20px 0; background:var(--card); }
+  .record-table table { border-collapse:collapse; width:100%; text-align:left; }
+  .record-table th, .record-table td { padding:13px 16px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .record-table th { font-size:.78rem; color:var(--muted); white-space:nowrap; }
+  .record-table td { font-size:.88rem; }
+  .record-table tr:last-child td { border-bottom:0; }
+  .record-table .number { white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .danger { background:var(--bad); color:white; box-shadow:none; }
+  .record-notice { padding:16px 20px; border:1px solid var(--line); border-radius:14px; background:var(--card); margin:16px 0; }
+  .record-notice p:last-child { margin-bottom:0; }
+  .record-timeline { max-height:260px; overflow-y:auto; min-width:220px; padding-left:16px; }
+  .record-timeline li { margin:8px 0; }
+  .delete-records { border-color:var(--bad); margin-top:32px; }
+  .delete-records label { display:block; margin:16px 0; }
+  .delete-records input { accent-color:var(--bad); }
+</style>

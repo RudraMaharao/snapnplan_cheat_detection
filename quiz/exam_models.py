@@ -32,6 +32,7 @@ class ExamSession(models.Model):
 
     owner_key = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -46,6 +47,7 @@ class ExamAttempt(models.Model):
     session = models.ForeignKey(ExamSession, on_delete=models.CASCADE,
                                 related_name="attempts")
     name = models.CharField(max_length=60)
+    student_id = models.CharField(max_length=60, blank=True)
 
     # Per-student override. Blank means "follow the room".
     mode = models.CharField(max_length=12, blank=True, default="")
@@ -63,6 +65,10 @@ class ExamAttempt(models.Model):
     flag_count = models.PositiveIntegerField(default=0)
 
     started_at = models.DateTimeField(auto_now_add=True)
+    began_at = models.DateTimeField(null=True, blank=True)
+    saved_at = models.DateTimeField(null=True, blank=True)
+    revision = models.PositiveIntegerField(default=0)
+    finish_reason = models.CharField(max_length=16, blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

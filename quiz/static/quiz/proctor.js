@@ -326,6 +326,7 @@ export class Proctor {
     if (!this.video || this.video.readyState < 2) return;
 
     const { p, label } = await this._classify();
+    if (this._endedAt) return; // An in-flight classification may finish after stop().
     this.frames += 1;
     const detected = p >= this.o.threshold;
     if (detected) {
@@ -480,7 +481,46 @@ export class Proctor {
     } catch (_) { /* audio blocked; the visual warning still shows */ }
   }
 
+  /** A non-destructive snapshot for autosaving; monitoring keeps running. */
+  snapshot() {
+    const now = this._endedAt || Date.now();
+    const durationS = this.startedAt ? Math.max(0, Math.round((now - this.startedAt) / 1000)) : 0;
+    const permittedMs = this.permittedMs + (this.mode === "permitted" ? now - this._modeSince : 0);
+    const pausedMs = this.pausedMs + (this.mode === "paused" ? now - this._modeSince : 0);
+    const events = this.events.map((event) => ({ ...event }));
+    const pending = (type, since, note = "") => events.push({
+      type, seconds: Math.max(0, Math.round((now - since) / 1000)), note,
+      mode: this.mode, at: new Date(now).toISOString(), elapsed: durationS,
+    });
+    // Include ongoing permitted windows/tab absences in a snapshot without
+    // appending duplicates to the live event log.
+    if (this.detectedSince && this.mode === "permitted") {
+      pending("permitted_window_visible", this.detectedSince, this.lastLabel);
+    }
+    if (this.hiddenSince && this.mode !== "paused" &&
+        now - this.hiddenSince >= this.o.tabAwaySeconds * 1000) {
+      pending(this.mode === "permitted" ? "permitted_tab_away" : "left_exam_tab", this.hiddenSince);
+    }
+    const windows = events.filter((e) => e.type === "other_window_visible");
+    const away = events.filter((e) => e.type === "left_exam_tab");
+    return {
+      events,
+      stats: {
+        duration_s: durationS,
+        monitored_s: Math.max(0, durationS - Math.round((permittedMs + pausedMs) / 1000)),
+        permitted_s: Math.round(permittedMs / 1000), paused_s: Math.round(pausedMs / 1000),
+        frames_checked: this.frames, frames_detected: this.detections,
+        confirmed_events: windows.length,
+        flagged_seconds: windows.reduce((sum, e) => sum + e.seconds, 0),
+        tab_aways: away.length,
+        tab_away_seconds: away.reduce((sum, e) => sum + e.seconds, 0),
+      },
+    };
+  }
+
   stop() {
+    if (this._finalReport) return this._finalReport;
+    this._endedAt = Date.now();
     clearInterval(this.timer);
     clearInterval(this.control);
     this.timer = this.control = null;
@@ -488,36 +528,10 @@ export class Proctor {
       document.removeEventListener("visibilitychange", this._onVis);
       this._onVis = null;
     }
-
-    const now = Date.now();
-    if (this.mode === "permitted") this.permittedMs += now - this._modeSince;
-    if (this.mode === "paused") this.pausedMs += now - this._modeSince;
-
+    this._finalReport = this.snapshot();
     this._stopStream();
     this._setState("stopped");
-
-    const durationS = Math.round((now - this.startedAt) / 1000);
-    const flagged = this.events.filter(
-      (e) => e.type === "other_window_visible");
-    return {
-      events: this.events,
-      stats: {
-        duration_s: durationS,
-        monitored_s: durationS
-          - Math.round((this.permittedMs + this.pausedMs) / 1000),
-        permitted_s: Math.round(this.permittedMs / 1000),
-        paused_s: Math.round(this.pausedMs / 1000),
-        frames_checked: this.frames,
-        frames_detected: this.detections,
-        confirmed_events: flagged.length,
-        flagged_seconds: flagged.reduce((a, e) => a + e.seconds, 0),
-        tab_aways: this.events.filter(
-          (e) => e.type === "left_exam_tab").length,
-        tab_away_seconds: this.events
-          .filter((e) => e.type === "left_exam_tab")
-          .reduce((a, e) => a + e.seconds, 0),
-      },
-    };
+    return this._finalReport;
   }
 
   _stopStream() {

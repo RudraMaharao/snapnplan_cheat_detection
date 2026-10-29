@@ -17,12 +17,17 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
+from django.db.models import Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
+from django.urls import reverse
 
 from .models import ExamSession, ExamAttempt   # see models.py below
+from .exam_records import (locked_exam, deadline, finish, expire, clean_snapshot,
+                           save_snapshot, attempt_summary, results_csv, events_csv)
 
 
 MODES = {"monitoring", "permitted", "paused"}
@@ -96,13 +101,22 @@ def _configured_passcode():
     return code.strip() or None
 
 
-def _gate(request):
+def _history_access(request):
+    return request.session.get("exam_history_until", 0) > timezone.now().timestamp()
+
+
+def _controls(request, session):
+    owner = bool(session.owner_key) and session.owner_key == request.session.get("invigilator_key")
+    return owner or _history_access(request)
+
+
+def _gate(request, history=False):
     """Returns a response if the visitor must be stopped, else None."""
     passcode = _configured_passcode()
     if passcode is None:
         return render(request, "quiz/exam_gate.html", {"unconfigured": True})
 
-    if request.session.get("is_invigilator"):
+    if (_history_access(request) if history else request.session.get("is_invigilator")):
         return None
 
     tries = request.session.get("exam_tries", 0)
@@ -116,8 +130,9 @@ def _gate(request):
         if secrets.compare_digest(given.encode("utf-8"),
                                   passcode.encode("utf-8")):
             request.session["is_invigilator"] = True
+            request.session["exam_history_until"] = (timezone.now() + timedelta(minutes=15)).timestamp()
             request.session["exam_tries"] = 0
-            return redirect("exam_create")
+            return redirect(request.path)
         request.session["exam_tries"] = tries + 1
         return render(request, "quiz/exam_gate.html",
                       {"error": "That passcode is not right.",
@@ -209,6 +224,7 @@ def parse_questions(text):
     return questions, errors
 
 
+@never_cache
 def exam_create(request):
     """Invigilator starts a session and gets a code to read to the room."""
     blocked = _gate(request)
@@ -240,7 +256,10 @@ def exam_create(request):
             "sample": SAMPLE_TEXT,
         })
 
-    minutes = int(request.POST.get("minutes", 30) or 30)
+    try:
+        minutes = int(request.POST.get("minutes", 30) or 30)
+    except (ValueError, TypeError):
+        return HttpResponseBadRequest("Invalid exam duration.")
     session = ExamSession.objects.create(
         code=secrets.token_hex(3).upper(),      # e.g. 'A3F19C'
         title=title,
@@ -266,45 +285,58 @@ def exam_create(request):
     return redirect("exam_dashboard", code=session.code)
 
 
+@never_cache
 def exam_dashboard(request, code):
     """Live grid of students. Polls exam_status for updates."""
     session = get_object_or_404(ExamSession, code=code)
-    if session.owner_key != _owner_key(request):
-        return HttpResponseBadRequest("Not your session.")
+    if not _controls(request, session):
+        return HttpResponseForbidden("Not your session. Open Exam reports and enter the staff passcode.")
+    if session.ended_at:
+        return redirect("exam_results", code=code)
     return render(request, "quiz/exam_dashboard.html", {"session": session})
 
 
 @require_POST
 def exam_set_mode(request, code):
     """Invigilator flips the whole room, or one student, into another mode."""
-    session = get_object_or_404(ExamSession, code=code)
-    if session.owner_key != _owner_key(request):
-        return HttpResponseBadRequest("Not your session.")
+    with locked_exam(code) as session:
+        if not _controls(request, session):
+            return HttpResponseForbidden("Not your session.")
+        if session.ended_at:
+            return HttpResponseBadRequest("This exam has ended.")
 
-    mode = request.POST.get("mode", "")
-    if mode not in MODES:
-        return HttpResponseBadRequest("Unknown mode.")
-    reason = request.POST.get("reason", "")[:200]
-    attempt_id = request.POST.get("attempt")
+        mode = request.POST.get("mode", "")
+        if mode not in MODES:
+            return HttpResponseBadRequest("Unknown mode.")
+        reason = request.POST.get("reason", "")[:200]
+        attempt_id = request.POST.get("attempt")
 
-    if attempt_id:                               # one student
-        attempt = get_object_or_404(ExamAttempt, id=attempt_id, session=session)
-        attempt.mode = mode
-        attempt.mode_reason = reason
-        attempt.save(update_fields=["mode", "mode_reason"])
-    else:                                        # the whole room
-        session.mode = mode
-        session.mode_reason = reason
-        session.save(update_fields=["mode", "mode_reason"])
-        session.attempts.update(mode="", mode_reason="")   # clear overrides
+        if attempt_id:                               # one student
+            attempt = get_object_or_404(ExamAttempt, id=attempt_id, session=session)
+            attempt.mode = mode
+            attempt.mode_reason = reason
+            attempt.save(update_fields=["mode", "mode_reason"])
+        else:                                        # the whole room
+            session.mode = mode
+            session.mode_reason = reason
+            session.save(update_fields=["mode", "mode_reason"])
+            session.attempts.update(mode="", mode_reason="")   # clear overrides
 
-    return JsonResponse({"ok": True, "mode": mode})
+        return JsonResponse({"ok": True, "mode": mode})
 
 
+@never_cache
 def exam_status(request, code):
     """Dashboard polls this: every student's current state."""
     session = get_object_or_404(ExamSession, code=code)
+    if not _controls(request, session):
+        return HttpResponseForbidden("Not your session.")
     now = timezone.now()
+    due = now - timedelta(minutes=session.minutes)
+    if session.attempts.filter(submitted_at__isnull=True, began_at__lte=due).exists():
+        with locked_exam(code) as current:
+            for attempt in current.attempts.filter(submitted_at__isnull=True, began_at__lte=due).select_related("session"):
+                expire(attempt, now)
     rows = []
     for a in session.attempts.all().order_by("name"):
         last = a.last_seen
@@ -321,6 +353,8 @@ def exam_status(request, code):
         "mode": session.mode,
         "reason": session.mode_reason,
         "students": rows,
+        "ended": session.ended_at is not None,
+        "results_url": reverse("exam_results", kwargs={"code": code}),
     })
 
 
@@ -329,100 +363,228 @@ def exam_status(request, code):
 def exam_join(request, code):
     """Student enters their name and starts."""
     session = get_object_or_404(ExamSession, code=code)
+    if session.ended_at:
+        return render(request, "quiz/exam_closed.html", {"session": session})
     if request.method == "POST":
         name = request.POST.get("name", "").strip()[:60]
         if not name:
             return render(request, "quiz/exam_join.html",
                           {"session": session, "error": "Enter your name."})
-        attempt = ExamAttempt.objects.create(session=session, name=name)
+        with locked_exam(code) as session:
+            if session.ended_at:
+                return render(request, "quiz/exam_closed.html", {"session": session})
+            attempt = ExamAttempt.objects.create(session=session, name=name,
+                student_id=request.POST.get("student_id", "").strip()[:60])
         request.session[f"attempt_{session.code}"] = attempt.id
         return redirect("exam_run", code=code)
     return render(request, "quiz/exam_join.html", {"session": session})
 
 
+@never_cache
 def exam_run(request, code):
     """The exam itself. Questions come from your existing quiz pipeline."""
     session = get_object_or_404(ExamSession, code=code)
     attempt = _attempt(request, session)
     if attempt is None:
         return redirect("exam_join", code=code)
+    if session.ended_at or attempt.submitted_at:
+        return redirect("exam_report", code=code)
     return render(request, "quiz/exam_run.html", {
         "session": session,
         "attempt": attempt,
-        "questions": session.questions,          # JSONField from make_quiz()
+        "questions": [{"question": q["question"], "options": q["options"]} for q in session.questions],
+        "saved_answers": attempt.answers,
+        "saved_events": attempt.events,
+        "saved_stats": attempt.stats,
     })
 
 
+@never_cache
 def exam_mode(request, code):
-    """Polled by proctor.js. Per-student override wins over the room mode.
-
-    Doubles as the heartbeat: this is where we learn a student is still
-    connected, and what their proctor is currently seeing.
-    """
+    """Read-only control poll, including closure before sharing has started."""
     session = get_object_or_404(ExamSession, code=code)
     attempt = _attempt(request, session)
-    if attempt is None:
-        return JsonResponse({"mode": "monitoring"})
-
-    state = request.GET.get("state", "")
-    fields = ["last_seen"]
-    attempt.last_seen = timezone.now()
-    if state in {"ok", "warning", "flagged", "permitted", "paused", "stopped"}:
-        attempt.state = state
-        fields.append("state")
-    attempt.save(update_fields=fields)
-
-    mode = attempt.mode or session.mode
-    reason = attempt.mode_reason or session.mode_reason
-    return JsonResponse({"mode": mode, "reason": reason})
+    return JsonResponse({
+        "mode": (attempt.mode if attempt else "") or session.mode,
+        "reason": (attempt.mode_reason if attempt else "") or session.mode_reason,
+        "ended": session.ended_at is not None,
+        "finished": attempt is not None and attempt.submitted_at is not None,
+    })
 
 
+@never_cache
+@require_POST
+def exam_start(request, code):
+    with locked_exam(code) as session:
+        attempt = _attempt(request, session)
+        if attempt is None:
+            return HttpResponseBadRequest("No attempt in progress.")
+        if not session.ended_at and not attempt.submitted_at:
+            if attempt.began_at is None:
+                attempt.began_at = timezone.now()
+                attempt.save(update_fields=["began_at"])
+            expire(attempt)
+        return _attempt_response(attempt)
+
+
+def _attempt_response(attempt):
+    due = deadline(attempt)
+    data = {
+        "ok": True,
+        "total": len(attempt.session.questions), "flags": attempt.flag_count,
+        "mode": attempt.mode or attempt.session.mode,
+        "reason": attempt.mode_reason or attempt.session.mode_reason,
+        "finished": attempt.submitted_at is not None,
+        "ended": attempt.session.ended_at is not None,
+        "deadline": due.isoformat() if due else None,
+        "began_at": attempt.began_at.isoformat() if attempt.began_at else None,
+        "revision": attempt.revision,
+    }
+    # Autosaving must not become a marks/answer-key oracle during the exam.
+    if attempt.submitted_at is not None:
+        data["score"] = attempt.score
+    return JsonResponse(data)
+
+
+def _save_attempt(request, code, final):
+    try:
+        if len(request.body) > 2 * 1024 * 1024:
+            return HttpResponseBadRequest("Report is too large.")
+        payload = json.loads(request.body)
+    except (ValueError, UnicodeDecodeError):
+        return HttpResponseBadRequest("Bad payload.")
+    with locked_exam(code) as session:
+        attempt = _attempt(request, session)
+        if attempt is None:
+            return HttpResponseBadRequest("No attempt in progress.")
+        # Ended/submitted attempts are immutable. Retrying a lost response
+        # returns the original result, without replacing marks or timestamps.
+        if session.ended_at or attempt.submitted_at:
+            return _attempt_response(attempt)
+        try:
+            cleaned = clean_snapshot(payload, session)
+            revision = payload.get("revision", attempt.revision + 1)
+            if type(revision) is not int or not 1 <= revision <= 2147483647:
+                raise ValueError("Invalid save revision.")
+        except ValueError as error:
+            return HttpResponseBadRequest(str(error))
+        now = timezone.now()
+        expire(attempt, now)
+        if attempt.submitted_at:
+            return _attempt_response(attempt)
+        if attempt.began_at is None:
+            if not final:
+                return HttpResponseBadRequest("Start screen sharing first.")
+            # Existing, already-open student tabs may predate the start API.
+            attempt.began_at = attempt.started_at
+        try:
+            save_snapshot(attempt, payload, cleaned, now)
+        except ValueError as error:
+            return HttpResponseBadRequest(str(error))
+        if final:
+            finish(attempt, now, "submitted")
+        return _attempt_response(attempt)
+
+
+@never_cache
+@require_POST
+def exam_checkpoint(request, code):
+    return _save_attempt(request, code, final=False)
+
+
+@never_cache
 @require_POST
 def exam_submit(request, code):
-    """Answers plus the proctor's event log. No frames, ever."""
+    return _save_attempt(request, code, final=True)
+
+
+@never_cache
+def exam_history(request):
+    blocked = _gate(request, history=True)
+    if blocked is not None:
+        return blocked
+    sessions = ExamSession.objects.annotate(student_count=Count("attempts"))
+    return render(request, "quiz/exam_history.html", {"sessions": sessions})
+
+
+def _report_access(request, session):
+    if _controls(request, session):
+        return None
+    return _gate(request, history=True)
+
+
+@never_cache
+def exam_results(request, code):
     session = get_object_or_404(ExamSession, code=code)
-    attempt = _attempt(request, session)
-    if attempt is None:
-        return HttpResponseBadRequest("No attempt in progress.")
-
-    try:
-        payload = json.loads(request.body.decode() or "{}")
-    except json.JSONDecodeError:
-        return HttpResponseBadRequest("Bad payload.")
-
-    answers = payload.get("answers", [])
-    report = payload.get("report", {})
-    events = report.get("events", [])
-
-    score = sum(
-        1 for i, q in enumerate(session.questions)
-        if i < len(answers) and answers[i] == q.get("answer_index"))
-
-    attempt.answers = answers
-    attempt.score = score
-    attempt.events = events
-    attempt.stats = report.get("stats", {})
-    # Both confirmed signals count. A student who never had a window beside
-    # the exam but left the tab six times is not "no windows recorded".
-    FLAGGED = {"other_window_visible", "left_exam_tab"}
-    attempt.flag_count = sum(1 for e in events if e.get("type") in FLAGGED)
-    attempt.state = "stopped"
-    attempt.submitted_at = timezone.now()
-    attempt.save()
-
-    return JsonResponse({"ok": True, "score": score,
-                         "total": len(session.questions),
-                         "flags": attempt.flag_count})
+    blocked = _report_access(request, session)
+    if blocked is not None:
+        return blocked
+    rows = [attempt_summary(attempt) for attempt in session.attempts.all()]
+    return render(request, "quiz/exam_results.html", {
+        "session": session, "rows": rows,
+        "autodownload": session.ended_at is not None and request.GET.get("download") == "1",
+    })
 
 
+@never_cache
+@require_POST
+def exam_end(request, code):
+    with locked_exam(code) as session:
+        if not _controls(request, session):
+            return HttpResponseForbidden("Not your session.")
+        if session.ended_at is None:
+            now = timezone.now()
+            session.ended_at = now
+            session.save(update_fields=["ended_at"])
+            for attempt in session.attempts.select_related("session"):
+                expire(attempt, now)
+                finish(attempt, now, "ended")
+    return redirect(reverse("exam_results", kwargs={"code": code}) + "?download=1")
+
+
+@never_cache
+def exam_csv(request, code):
+    session = get_object_or_404(ExamSession, code=code)
+    blocked = _report_access(request, session)
+    if blocked is not None:
+        return blocked
+    if session.ended_at is None:
+        return HttpResponseBadRequest("End the exam before downloading its final CSV.")
+    events = request.GET.get("events") == "1"
+    data = (events_csv if events else results_csv)(session, session.attempts.all())
+    response = HttpResponse(data, content_type="text/csv; charset=utf-8")
+    suffix = "events" if events else "results"
+    response["Content-Disposition"] = f'attachment; filename="exam-{session.code}-{suffix}.csv"'
+    response["X-Content-Type-Options"] = "nosniff"
+    # No copy is written to media, disk, a public URL or an archive.
+    return response
+
+
+@never_cache
+@require_POST
+def exam_delete(request, code):
+    with locked_exam(code) as session:
+        if not _controls(request, session):
+            return HttpResponseForbidden("Not your session.")
+        if session.ended_at is None or request.POST.get("download_confirmed") != "yes":
+            return HttpResponseBadRequest("End the exam and confirm you have saved the CSV first.")
+        # Explicit user confirmation, never a side effect of downloading:
+        # the web server cannot know whether a file was actually saved.
+        session.delete()
+    return render(request, "quiz/exam_deleted.html")
+
+
+@never_cache
 def exam_report(request, code):
     """What the student sees afterwards: score and their own timeline."""
     session = get_object_or_404(ExamSession, code=code)
     attempt = _attempt(request, session)
     if attempt is None:
         return redirect("exam_join", code=code)
+    if attempt.submitted_at is None:
+        return redirect("exam_run", code=code)
     return render(request, "quiz/exam_report.html",
-                  {"session": session, "attempt": attempt})
+                  {"session": session, "attempt": attempt, "summary": attempt_summary(attempt)})
 
 
 # ----------------------------------------------------------------- utils ---

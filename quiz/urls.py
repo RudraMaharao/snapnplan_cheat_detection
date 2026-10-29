@@ -21,7 +21,14 @@ urlpatterns = [
 
     # --- exam mode (online) ---
     path("exam/new/",               exam_views.exam_create,    name="exam_create"),
+    path("exam/history/",           exam_views.exam_history,   name="exam_history"),
     path("exam/<str:code>/",        exam_views.exam_join,      name="exam_join"),
+    path("exam/<str:code>/start/",  exam_views.exam_start,     name="exam_start"),
+    path("exam/<str:code>/save/",   exam_views.exam_checkpoint, name="exam_checkpoint"),
+    path("exam/<str:code>/end/",    exam_views.exam_end,       name="exam_end"),
+    path("exam/<str:code>/results/", exam_views.exam_results,  name="exam_results"),
+    path("exam/<str:code>/csv/",    exam_views.exam_csv,       name="exam_csv"),
+    path("exam/<str:code>/delete/", exam_views.exam_delete,    name="exam_delete"),
     path("exam/<str:code>/run/",    exam_views.exam_run,       name="exam_run"),
     path("exam/<str:code>/mode/",   exam_views.exam_mode,      name="exam_mode"),
     path("exam/<str:code>/submit/", exam_views.exam_submit,    name="exam_submit"),

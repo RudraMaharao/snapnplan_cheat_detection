@@ -1,0 +1,3 @@
+{% extends "quiz/base.html" %}
+{% block title %}Exam records deleted{% endblock %}
+{% block content %}<div class="card"><h1>Exam records deleted</h1><p>The exam and its student answers, marks and logs have been removed from the app. Your downloaded CSV remains on your device.</p><div class="row"><a class="btn" href="{% url 'exam_create' %}">Start another exam</a><a class="btn ghost" href="{% url 'exam_history' %}">Exam reports</a></div></div>{% endblock %}

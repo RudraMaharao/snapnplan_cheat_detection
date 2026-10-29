@@ -1,0 +1,12 @@
+{% extends "quiz/base.html" %}
+{% block title %}Exam reports{% endblock %}
+{% block style %}{% include "quiz/_exam_records_style.html" %}{% endblock %}
+{% block content %}
+<div class="record-head"><div><h1>Exam reports</h1><p class="muted">Open an exam to end it, download its CSV, or confirm deletion.</p></div><a class="btn ghost" href="{% url 'exam_create' %}">New exam</a></div>
+<p class="record-notice">Records stay here until you confirm that you have saved the CSV. Deleted exams disappear permanently from the app. No CSV archive is stored.</p>
+<div class="record-table"><table>
+  <thead><tr><th>Exam</th><th>Created (UTC)</th><th>Students</th><th>Status</th><th>Report</th></tr></thead>
+  <tbody>{% for exam in sessions %}<tr><td><b>{{ exam.title }}</b><br><span class="muted">{{ exam.code }}</span></td><td>{{ exam.created_at|date:"d M Y, H:i" }}</td><td>{{ exam.student_count }}</td><td>{% if exam.ended_at %}Awaiting download confirmation{% else %}Open{% endif %}</td><td><a class="btn ghost small" href="{% url 'exam_results' exam.code %}">Open report</a></td></tr>
+  {% empty %}<tr><td colspan="5">No exam records to show. Confirmed downloads are removed from the app.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

@@ -34,6 +34,8 @@
     <label for="name">Your full name, as it appears on the roll</label>
     <input id="name" name="name" maxlength="60" required autofocus
            autocomplete="off">
+    <label for="student-id" style="margin-top:14px">Student ID / roll number (optional)</label>
+    <input id="student-id" name="student_id" maxlength="60" autocomplete="off">
     <button class="btn" type="submit">Continue</button>
     {% if error %}<p class="err">{{ error }}</p>{% endif %}
   </form>

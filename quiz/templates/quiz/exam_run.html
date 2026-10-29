@@ -66,6 +66,9 @@
 {% block content %}
 
 {{ questions|json_script:"qdata" }}
+{{ saved_answers|json_script:"saved-answers" }}
+{{ saved_events|json_script:"saved-events" }}
+{{ saved_stats|json_script:"saved-stats" }}
 
 <!-- ============================ before sharing ============================ -->
 <section class="gate" id="gate">
@@ -98,6 +101,7 @@
   <div class="debug" id="debug" hidden></div>
 
   <div id="questions"></div>
+  <p class="small muted" id="save-status" role="status" aria-live="polite">Your answers and monitoring log will save automatically.</p>
 
   <div class="submit-row">
     <button class="btn" id="submit">Submit exam</button>
@@ -109,9 +113,11 @@
 {% block script %}
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
 <script type="module">
-  import { Proctor } from "{% static 'quiz/proctor.js' %}";
+  import { Proctor } from "{% static 'quiz/proctor.js' %}?v=exam-reports-1";
 
   const MODE_URL   = "{% url 'exam_mode'   session.code %}";
+  const START_URL  = "{% url 'exam_start' session.code %}";
+  const SAVE_URL   = "{% url 'exam_checkpoint' session.code %}";
   const SUBMIT_URL = "{% url 'exam_submit' session.code %}";
   const REPORT_URL = "{% url 'exam_report' session.code %}";
   const MODEL_URL  = "{% static 'quiz/screen_model/model.json' %}";
@@ -120,8 +126,13 @@
 
   const $ = (id) => document.getElementById(id);
   const questions = JSON.parse($("qdata").textContent) || [];
-  const answers = new Array(questions.length).fill(null);
-  let proctor = null, deadline = null, submitting = false;
+  const savedAnswers = JSON.parse($("saved-answers").textContent) || [];
+  const savedEvents = JSON.parse($("saved-events").textContent) || [];
+  const savedStats = JSON.parse($("saved-stats").textContent) || {};
+  const answers = questions.map((_, i) => savedAnswers[i] ?? null);
+  let proctor = null, deadline = null, submitting = false, finished = false;
+  let revision = {{ attempt.revision }}, clockTimer = null, syncChain = Promise.resolve();
+  let finalReport = null;
 
   /* -------------------------------------------------------------- questions */
   // The quiz pipeline has used a few different key names over time, so read
@@ -135,19 +146,21 @@
         <div class="n">QUESTION ${i + 1} OF ${questions.length}</div>
         <div class="text">${escapeHtml(textOf(q))}</div>
         ${optsOf(q).map((o, j) => `
-          <label class="opt" data-q="${i}" data-o="${j}">
-            <input type="radio" name="q${i}" value="${j}">
+          <label class="opt${answers[i] === j ? " sel" : ""}" data-q="${i}" data-o="${j}">
+            <input type="radio" name="q${i}" value="${j}" ${answers[i] === j ? "checked" : ""}>
             <span>${escapeHtml(String(o))}</span>
           </label>`).join("")}
       </div>`).join("");
 
     document.querySelectorAll(".opt").forEach((el) => {
-      el.onclick = () => {
+      el.querySelector("input").onchange = () => {
+        if (finished || submitting) return;
         const i = +el.dataset.q, j = +el.dataset.o;
         answers[i] = j;
         el.parentElement.querySelectorAll(".opt")
           .forEach((s) => s.classList.toggle("sel", s === el));
         updateProgress();
+        enqueueSave();
       };
     });
     updateProgress();
@@ -165,6 +178,7 @@
 
   /* ------------------------------------------------------------------ clock */
   function tickClock() {
+    if (!deadline || finished) return;
     const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
     const m = String(Math.floor(left / 60)).padStart(2, "0");
     const s = String(left % 60).padStart(2, "0");
@@ -225,89 +239,136 @@
     }
   }
 
-  /* Heartbeat: tells the server this student is alive and what the proctor is
-     seeing, and reads back the mode the invigilator has set. Doing it here
-     rather than with proctor.attachControl() lets the state ride along on the
-     same request — one round trip instead of two. */
-  async function heartbeat() {
-    if (!proctor) return;
-    try {
-      const r = await fetch(
-        `${MODE_URL}?state=${encodeURIComponent(proctor.state)}`,
-        { cache: "no-store" });
-      if (!r.ok) return;
-      const { mode, reason } = await r.json();
-      if (mode && mode !== proctor.mode) proctor.setMode(mode, reason || "");
-    } catch (_) { /* blip: keep the current mode */ }
+  async function post(url, body) {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "X-CSRFToken": CSRF, "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) throw new Error("Could not save to the server.");
+    return r.json();
   }
 
-  /* ------------------------------------------------------------------ start */
+  function leaveFinished() {
+    finished = true;
+    clearInterval(clockTimer);
+    proctor?.stop();
+    window.location.replace(REPORT_URL);
+  }
+
+  function applyControl(data) {
+    if (data.ended || data.finished) { leaveFinished(); return; }
+    if (data.deadline) deadline = Date.parse(data.deadline);
+    if (data.mode && proctor && data.mode !== proctor.mode) {
+      proctor.setMode(data.mode, data.reason || "");
+    }
+  }
+
+  async function saveSnapshot(final = false) {
+    if (!proctor || finished) return;
+    const data = await post(final ? SUBMIT_URL : SAVE_URL, {
+      answers: [...answers], report: final ? finalReport : proctor.snapshot(),
+      state: proctor.state, revision: ++revision,
+    });
+    applyControl(data);
+    if (!finished) $("save-status").textContent = "Saved " + new Date().toLocaleTimeString();
+  }
+
+  function enqueueSave(final = false) {
+    syncChain = syncChain.catch(() => {}).then(() => saveSnapshot(final));
+    if (!final) syncChain = syncChain.catch(() => {
+      $("save-status").textContent = "Not saved — connection lost. Keep this tab open; retrying automatically.";
+    });
+    return syncChain;
+  }
+
+  async function heartbeat() {
+    if (finished || submitting) return;
+    if (proctor && deadline) { enqueueSave(); return; }
+    // Poll before sharing too, so an invigilator can end an exam while a
+    // student is still at the sharing prompt.
+    try {
+      const r = await fetch(MODE_URL, { cache: "no-store", signal: AbortSignal.timeout(12000) });
+      if (r.ok) applyControl(await r.json());
+    } catch (_) { /* the next poll retries */ }
+  }
+
   $("begin").onclick = async () => {
+    if (finished) return;
     $("gate-err").textContent = "";
     $("begin").disabled = true;
     proctor = new Proctor({
-      modelUrl: MODEL_URL,
-      onState,
-      onTick,
-      // The model is ~10 MB. Say so, or the page looks frozen and the button
-      // gets clicked again.
+      modelUrl: MODEL_URL, onState, onTick,
       onProgress: (msg) => { $("begin").textContent = msg + "…"; },
-      // threshold, sampleMs etc. come from proctor.js DEFAULTS, which were
-      // tuned on real screenshots — do not override them here.
     });
     $("begin").textContent = "Waiting for you to pick a screen…";
     try {
+      // Keep getDisplayMedia in the click's user gesture. The server starts
+      // the timer only once, after sharing/model loading has succeeded.
       await proctor.start();
+      if (finished) { proctor.stop(); return; }
+      const data = await post(START_URL, {});
+      if (data.ended || data.finished) { leaveFinished(); return; }
+      proctor.startedAt = Date.parse(data.began_at);
+      proctor.events = savedEvents;
+      proctor.frames = savedStats.frames_checked || 0;
+      proctor.detections = savedStats.frames_detected || 0;
+      proctor.permittedMs = (savedStats.permitted_s || 0) * 1000;
+      proctor.pausedMs = (savedStats.paused_s || 0) * 1000;
+      revision = Math.max(revision, data.revision);
+      applyControl(data);
     } catch (e) {
-      $("begin").textContent = "Share screen & begin";
-      $("gate-err").textContent = e.message ||
-        "Could not start screen sharing. Please try again.";
-      $("begin").disabled = false;
+      proctor?.stop();
       proctor = null;
+      $("begin").textContent = "Share screen & begin";
+      $("gate-err").textContent = e.message || "Could not start. Please try again.";
+      $("begin").disabled = false;
       return;
     }
-
     $("gate").hidden = true;
     $("exam").hidden = false;
     renderQuestions();
-
-    deadline = Date.now() + MINUTES * 60 * 1000;
     tickClock();
-    setInterval(tickClock, 1000);
-
-    heartbeat();
-    setInterval(heartbeat, 5000);
+    clockTimer = setInterval(tickClock, 1000);
+    enqueueSave();
   };
 
-  /* ----------------------------------------------------------------- submit */
   $("submit").onclick = () => submit(false);
 
   async function submit(auto) {
-    if (submitting) return;
+    if (submitting || finished) return;
     const missing = answers.filter((a) => a === null).length;
-    if (!auto && missing &&
-        !confirm(`${missing} question${missing > 1 ? "s are" : " is"} `
-                 + `unanswered. Submit anyway?`)) return;
+    if (!auto && missing && !confirm(`${missing} unanswered. Submit anyway?`)) return;
     submitting = true;
     $("submit").disabled = true;
     $("submit").textContent = "Submitting…";
-
-    const report = proctor ? proctor.stop() : { events: [], stats: {} };
+    // Freeze locally and reuse the same report if the network request fails.
+    finalReport ||= proctor ? proctor.stop() : { events: [], stats: {} };
+    document.querySelectorAll("#questions input").forEach((input) => { input.disabled = true; });
     try {
-      const r = await fetch(SUBMIT_URL, {
-        method: "POST",
-        headers: { "X-CSRFToken": CSRF, "Content-Type": "application/json" },
-        body: JSON.stringify({ answers, report }),
-      });
-      if (!r.ok) throw new Error("Server refused the submission.");
-      window.location = REPORT_URL;
+      await enqueueSave(true);
+      leaveFinished();
     } catch (e) {
       submitting = false;
       $("submit").disabled = false;
-      $("submit").textContent = "Submit exam";
-      alert("Could not submit: " + e.message + "\nYour answers are still here — try again.");
+      $("submit").textContent = "Retry submission";
+      $("save-status").textContent = "Submission not saved. Your answers are frozen here. Reconnect and retry submission.";
     }
   }
+
+  heartbeat();
+  setInterval(heartbeat, 5000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) heartbeat(); });
+  window.addEventListener("online", heartbeat);
+  window.addEventListener("pagehide", () => {
+    if (!proctor || finished || submitting || !deadline) return;
+    // Best-effort checkpoint for tab closure; never send a screen image.
+    fetch(SAVE_URL, {
+      method: "POST", keepalive: true,
+      headers: { "X-CSRFToken": CSRF, "Content-Type": "application/json" },
+      body: JSON.stringify({ answers, report: proctor.snapshot(), state: proctor.state, revision: ++revision }),
+    }).catch(() => {});
+  });
 
   // Leaving mid-exam is worth a nudge; the proctor logs the stopped share anyway.
   window.addEventListener("beforeunload", (e) => {

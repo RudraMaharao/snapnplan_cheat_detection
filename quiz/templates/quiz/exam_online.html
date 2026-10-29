@@ -23,6 +23,11 @@
   <a class="btn" href="{% url 'exam_create' %}">Start an online exam</a>
 </div>
 
+<div class="card action">
+  <div><h2>Exam reports</h2><div class="muted small">Download each exam's marks, time taken and flags. Confirm your download to delete its records.</div></div>
+  <a class="btn ghost" href="{% url 'exam_history' %}">Open exam reports</a>
+</div>
+
 <section class="card section">
   <h2>Before you start</h2>
   <ul class="plain">
@@ -85,7 +90,10 @@
         <h3>See the results</h3>
         <p>When students submit, they see their score and a timeline of what
           was recorded. Your dashboard shows who has submitted and how many
-          flags each student has.</p>
+          flags each student has. Click <b>End exam &amp; download CSV</b> to
+          finish early or close the completed exam. The results CSV downloads
+          automatically. After checking it, confirm the download to permanently
+          delete that exam's records from the app.</p>
       </div>
     </li>
   </ol>
