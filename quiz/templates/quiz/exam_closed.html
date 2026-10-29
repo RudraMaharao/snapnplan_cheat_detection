@@ -1,0 +1,3 @@
+{% extends "quiz/base.html" %}
+{% block title %}Exam ended{% endblock %}
+{% block content %}<div class="card"><h1>This exam has ended</h1><p>{{ session.title }} is closed. New students cannot join.</p><a class="btn ghost" href="{% url 'exam_choose' %}">Back to exam mode</a></div>{% endblock %}

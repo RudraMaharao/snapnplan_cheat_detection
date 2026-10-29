@@ -1,0 +1,80 @@
+{% extends "quiz/base.html" %}
+{% block title %}Results · {{ session.title }}{% endblock %}
+{% block style %}{% include "quiz/_exam_records_style.html" %}{% endblock %}
+{% block content %}
+<div class="record-head">
+  <div>
+    <p class="small muted">EXAM {{ session.code }}</p>
+    <h1>{{ session.title }}</h1>
+    <p class="record-meta">{{ session.minutes }} minutes · {{ rows|length }} student{{ rows|length|pluralize }} · Created {{ session.created_at|date:"d M Y, H:i" }} UTC</p>
+  </div>
+  <span class="tag">{% if session.ended_at %}Ended{% else %}In progress{% endif %}</span>
+</div>
+<div class="record-actions">
+  <a class="btn ghost small" href="{% url 'exam_history' %}">Exam reports</a>
+  {% if not session.ended_at %}
+    <a class="btn ghost small" href="{% url 'exam_dashboard' session.code %}">Live dashboard</a>
+    <form method="post" action="{% url 'exam_end' session.code %}" onsubmit="return confirm('End this exam for everyone? Latest saved answers will be marked, and the results CSV will download. Students cannot continue.');">
+      {% csrf_token %}<button class="btn danger small" type="submit">End exam &amp; download CSV</button>
+    </form>
+  {% else %}
+    <a class="btn" id="download-csv" href="{% url 'exam_csv' session.code %}" download>Download results CSV</a>
+    <a class="btn ghost" href="{% url 'exam_csv' session.code %}?events=1" download>Download event timeline CSV</a>
+  {% endif %}
+</div>
+{% if session.ended_at %}
+<div class="record-notice" role="status">
+  <b>Exam ended {{ session.ended_at|date:"d M Y, H:i:s" }} UTC.</b>
+  <p id="download-status">Save the results CSV before deleting the records. It includes every student's marks, time taken, flags, answers and event log. The separate event CSV makes the timeline easier to read.</p>
+</div>
+{% else %}
+<p class="record-notice">Results are still changing. End the exam to freeze the latest saved answers and download its final CSV.</p>
+{% endif %}
+<p class="small muted">Answers and logs sync every 5 seconds and after answer changes. Offline or closed browsers use their last successful save. Times are measured from screen sharing; older records label joined-time estimates. Flags are monitoring signals for review.</p>
+<div class="record-table">
+<table>
+  <thead><tr><th>Student / roll number</th><th>Status</th><th>Marks</th><th>Time taken</th><th>Flags</th><th>Last saved (UTC)</th><th>Event log</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+  <tr>
+    <td><b>{{ row.attempt.name }}</b><br><span class="muted">{{ row.attempt.student_id|default:"No roll number provided" }}</span></td>
+    <td>{{ row.status }}</td>
+    <td class="number">{{ row.attempt.score }} / {{ row.total }}<br><span class="muted">{{ row.percentage }}% · {{ row.unanswered }} unanswered</span></td>
+    <td class="number">{{ row.time_taken }}<br><span class="muted">{{ row.time_basis }}</span></td>
+    <td class="number"><b>{{ row.attempt.flag_count }}</b><br><span class="muted">{{ row.window_flags }} window · {{ row.tab_flags }} tab · {{ row.sharing_stops }} share stopped</span></td>
+    <td class="number">{{ row.attempt.saved_at|date:"H:i:s"|default:"No autosave" }}</td>
+    <td>
+      <details><summary>{{ row.attempt.events|length }} event{{ row.attempt.events|length|pluralize }}</summary>
+      <ol class="record-timeline">
+      {% for event in row.attempt.events %}<li><b>{{ event.type }}</b> · {{ event.elapsed }}s elapsed · {{ event.seconds }}s<br>{{ event.mode }}{% if event.note %} · {{ event.note }}{% endif %}</li>
+      {% empty %}<li>No events saved.</li>{% endfor %}
+      </ol></details>
+    </td>
+  </tr>
+  {% empty %}<tr><td colspan="7">No students joined this exam. The CSV will still contain its column headers.</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% if session.ended_at %}
+<form class="record-notice delete-records" method="post" action="{% url 'exam_delete' session.code %}" onsubmit="return confirm('Permanently delete this exam, its questions, and all student answers, marks and logs? This cannot be undone. Your downloaded CSV is kept on your device.');">
+  {% csrf_token %}
+  <h2>After you save the CSV</h2>
+  <p>The app keeps this exam available until you confirm your download. It does not keep a separate CSV archive.</p>
+  <label><input type="checkbox" name="download_confirmed" value="yes" required> I have downloaded and checked the results CSV.</label>
+  <button class="btn danger" type="submit">Confirm download &amp; delete exam records</button>
+  <p class="small muted">This permanently deletes this exam from the app, including all student records. It does not remove your downloaded CSV or copies in existing server backups.</p>
+</form>
+{% endif %}
+{% endblock %}
+{% block script %}
+{% if autodownload %}
+<script>
+  // Start a real attachment download. Never infer success from a click or
+  // delete records automatically; the user must confirm the saved file.
+  document.getElementById("download-csv").click();
+  document.getElementById("download-status").textContent =
+    "Your results CSV download has been requested. If it did not start, click Download results CSV. Open and check the file, then confirm below when you are ready to delete the records.";
+  history.replaceState(null, "", location.pathname);
+</script>
+{% endif %}
+{% endblock %}

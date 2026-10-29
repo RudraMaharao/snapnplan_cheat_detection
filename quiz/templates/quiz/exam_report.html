@@ -57,18 +57,19 @@
   <div class="score">
     <b>{{ attempt.score }}<span style="-webkit-text-fill-color:var(--muted);font-size:1.6rem">/{{ session.questions|length }}</span></b>
     <span>{{ attempt.name }} &middot; {{ session.title }}</span>
+    <p class="small muted">{{ summary.status }} · Time taken {{ summary.time_taken }} ({{ summary.time_basis }})</p>
   </div>
 
   {% if attempt.flag_count %}
     <div class="verdict flagged">
-      {{ attempt.flag_count }} window event{{ attempt.flag_count|pluralize }} recorded.
+      {{ attempt.flag_count }} monitoring flag{{ attempt.flag_count|pluralize }} recorded.
       <p>Your invigilator sees the same timeline below. Nothing here is a
          decision — it is a record for them to read.</p>
     </div>
   {% else %}
     <div class="verdict clean">
-      No windows recorded.
-      <p>Your screen was clear for the whole monitored period.</p>
+      No monitoring flags saved.
+      <p>This describes only the saved monitoring data, including any gaps.</p>
     </div>
   {% endif %}
 

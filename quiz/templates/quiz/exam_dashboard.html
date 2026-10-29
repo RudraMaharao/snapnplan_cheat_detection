@@ -98,6 +98,16 @@
   Monitoring paused. Nothing is being checked — this gap shows on every report.
 </div>
 
+<div class="row" style="margin:18px 0">
+  <a class="btn ghost small" href="{% url 'exam_results' session.code %}">Student results</a>
+  <a class="btn ghost small" href="{% url 'exam_history' %}">Exam reports</a>
+  <form method="post" action="{% url 'exam_end' session.code %}" onsubmit="return confirm('End this exam for everyone? Latest saved answers will be marked and a CSV will download. Students cannot continue.');">
+    {% csrf_token %}<button class="btn small" style="background:var(--bad);box-shadow:none" type="submit">End exam &amp; download CSV</button>
+  </form>
+</div>
+<p class="small muted">Results save every 5 seconds and after answer changes. Ending the exam uses each student's latest successful save, including offline students.</p>
+<p class="small muted" id="finished-note" role="status"></p>
+
 <div class="strip">
   <div class="stat"><b id="s-total">0</b><span>STUDENTS</span></div>
   <div class="stat"><b id="s-ok">0</b><span>CLEAR</span></div>
@@ -130,16 +140,19 @@
   };
 
   function render(data) {
+    if (data.ended) { window.location = data.results_url + "?download=1"; return; }
     const rows = data.students || [];
+    $("finished-note").textContent = rows.length && rows.every((s) => s.submitted)
+      ? "All students have finished. End the exam to download the CSV." : "";
     $("empty").style.display = rows.length ? "none" : "";
     $("grid").innerHTML = rows.map((s) => {
       const cls = s.submitted ? "submitted" : s.state;
       const why = s.submitted ? "Submitted"
         : (s.flags ? `${s.flags} event${s.flags > 1 ? "s" : ""}`
                    : LABEL[s.state] || s.state);
-      return `<button class="tile ${cls}" data-id="${s.id}" data-name="${s.name}">
+      return `<button class="tile ${cls}" data-id="${s.id}" data-name="${escapeHtml(s.name)}">
                 <span class="pip"></span>
-                <span class="who">${s.name}</span>
+                <span class="who">${escapeHtml(s.name)}</span>
                 <span class="why">${why}</span>
               </button>`;
     }).join("");
@@ -154,6 +167,12 @@
     document.querySelectorAll(".tile").forEach((t) => {
       t.onclick = () => perStudent(t.dataset.id, t.dataset.name);
     });
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
   }
 
   function setMode(mode, send = true) {
